@@ -1,0 +1,1095 @@
+<title>img2desmos</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Space+Grotesk:wght@500;700&display=swap">
+<style>
+/* Layout: a two-pane workbench. Settings rail on the left, a graph-paper stage on the right
+   that shows exactly what Desmos will draw. Colors borrow the graphing-calculator curve palette. */
+:root {
+  --bg: #eef1f5;
+  --panel: #ffffff;
+  --panel-2: #f6f8fb;
+  --line: #d9dee6;
+  --fg: #1c2330;
+  --muted: #5e6878;
+  --accent: #2d70b3;        /* graph blue */
+  --accent-fg: #ffffff;
+  --accent-soft: #e3edf8;
+  --red: #c74440; --green: #388c46; --purple: #6042a6; --orange: #fa7e19;
+  --paper: #ffffff; --grid-minor: rgba(28,35,48,.06); --grid-major: rgba(28,35,48,.16);
+  --axis: rgba(28,35,48,.75); --halo: rgba(255,255,255,.92);
+  --ok: #2c7a3f; --err: #b3261e;
+  --shadow: 0 1px 2px rgba(20,30,50,.06), 0 4px 16px rgba(20,30,50,.06);
+  --font-ui: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-head: "Space Grotesk", "IBM Plex Sans", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --math: "Times New Roman", Times, serif;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #12151b; --panel: #1a1e26; --panel-2: #20252f; --line: #2d3340; --fg: #e7eaf0; --muted: #9aa3b2;
+  --accent: #5b9be0; --accent-fg: #0d1520; --accent-soft: #1f3048;
+  --red: #e0605b; --green: #5cb36c; --purple: #9b84e0; --orange: #ff9a45;
+  --paper: #0f1217; --grid-minor: rgba(255,255,255,.06); --grid-major: rgba(255,255,255,.15);
+  --axis: rgba(255,255,255,.75); --halo: rgba(15,18,23,.9);
+  --ok: #6fcf86; --err: #ff8a80; --shadow: 0 1px 2px rgba(0,0,0,.3), 0 6px 20px rgba(0,0,0,.25);
+  color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #12151b; --panel: #1a1e26; --panel-2: #20252f; --line: #2d3340; --fg: #e7eaf0; --muted: #9aa3b2;
+  --accent: #5b9be0; --accent-fg: #0d1520; --accent-soft: #1f3048;
+  --red: #e0605b; --green: #5cb36c; --purple: #9b84e0; --orange: #ff9a45;
+  --paper: #0f1217; --grid-minor: rgba(255,255,255,.06); --grid-major: rgba(255,255,255,.15);
+  --axis: rgba(255,255,255,.75); --halo: rgba(15,18,23,.9);
+  --ok: #6fcf86; --err: #ff8a80; --shadow: 0 1px 2px rgba(0,0,0,.3), 0 6px 20px rgba(0,0,0,.25);
+  color-scheme: dark; }
+
+* { box-sizing: border-box; }
+html, body { min-height: 100%; }
+body { background: var(--bg); color: var(--fg); font: 15px/1.5 var(--font-ui); }
+button, input, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.wrap { max-width: 1320px; margin: 0 auto; padding-block: 18px 32px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid; gap: 16px; }
+header.top { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.brand { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.brand h1 { font: 700 26px/1.1 var(--font-head); letter-spacing: -.01em; margin: 0; }
+.brand h1 .eq { color: var(--accent); }
+.brand p { margin: 0; color: var(--muted); }
+.top .spacer { flex: 1; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid var(--line);
+  border-radius: 999px; font-size: 13px; color: var(--muted); background: var(--panel); }
+.chip i { width: 8px; height: 8px; border-radius: 50%; background: var(--green); display: inline-block; }
+
+.grid { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 900px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+
+.rail { display: grid; gap: 12px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; display: grid; gap: 10px; min-width: 0; }
+.card h2 { font: 600 12px/1 var(--font-ui); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0; }
+
+.drop { border: 1.5px dashed var(--line); border-radius: 8px; padding: 14px; display: grid; gap: 6px; text-align: center;
+  background: var(--panel-2); cursor: pointer; transition: border-color .15s, background .15s; }
+.drop:hover, .drop.over { border-color: var(--accent); background: var(--accent-soft); }
+.drop strong { font-weight: 600; }
+.drop small { color: var(--muted); }
+.fileinfo { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; font-size: 13px; }
+.fileinfo dt { color: var(--muted); }
+.fileinfo dd { margin: 0; font-family: var(--font-mono); overflow-wrap: anywhere; min-width: 0; }
+
+.seg { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg button { border: 0; background: var(--panel); padding: 8px 6px; cursor: pointer; display: grid; justify-items: center; gap: 2px; font-size: 13px; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button svg { width: 22px; height: 22px; }
+.seg button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+
+.field { display: grid; gap: 4px; }
+.field .row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.field label { font-weight: 500; }
+.field output { font-family: var(--font-mono); font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.field .hint { font-size: 12px; color: var(--muted); }
+input[type=range] { width: 100%; accent-color: var(--accent); }
+.checks { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+.checks label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+input[type=checkbox] { accent-color: var(--accent); width: 16px; height: 16px; }
+.nums { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.nums input { width: 100%; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); font-family: var(--font-mono); }
+.nums input:disabled { opacity: .5; }
+[hidden] { display: none !important; }
+
+.btn { border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 9px 14px; cursor: pointer;
+  font-weight: 500; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+.btn:hover:not(:disabled) { border-color: var(--accent); }
+.btn:disabled { opacity: .45; cursor: default; }
+.btn.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); font-weight: 600; }
+.btn.primary:hover:not(:disabled) { filter: brightness(1.08); }
+.btn svg { width: 16px; height: 16px; flex: none; }
+
+.progress { height: 6px; background: var(--panel-2); border-radius: 999px; overflow: hidden; border: 1px solid var(--line); }
+.progress div { height: 100%; width: 0; background: var(--accent); transition: width .12s linear; }
+.status { font-size: 13px; color: var(--muted); min-height: 1.5em; font-variant-numeric: tabular-nums; }
+.status.err { color: var(--err); }
+.status.ok { color: var(--ok); }
+
+/* stage */
+.stage { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; box-shadow: var(--shadow); display: grid; min-width: 0; }
+.stage-head { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.stage-head h2 { font: 600 15px var(--font-head); margin: 0; }
+.stats { margin-left: auto; font: 13px var(--font-mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.paper { position: relative; aspect-ratio: 16 / 10; max-height: 68vh; min-height: 260px; width: 100%; background: var(--paper); }
+.paper canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
+.paper canvas:active { cursor: grabbing; }
+.zoom { position: absolute; right: 10px; top: 10px; display: grid; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; box-shadow: var(--shadow); }
+.zoom button { width: 34px; height: 34px; border: 0; background: none; cursor: pointer; display: grid; place-items: center; color: var(--muted); }
+.zoom button + button { border-top: 1px solid var(--line); }
+.zoom button:hover { color: var(--fg); background: var(--panel-2); }
+.badge { position: absolute; left: 10px; top: 10px; font: 12px var(--font-mono); background: var(--panel); border: 1px solid var(--line);
+  padding: 3px 8px; border-radius: 6px; color: var(--muted); }
+.player { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-top: 1px solid var(--line); flex-wrap: wrap; }
+.player .tex { font-family: var(--math); font-size: 19px; min-width: 7.5em; font-variant-numeric: tabular-nums; }
+.player .tex i { font-style: italic; }
+.player input[type=range] { flex: 1; min-width: 140px; }
+.round { width: 38px; height: 38px; border-radius: 50%; border: 0; background: var(--accent); color: var(--accent-fg); cursor: pointer; display: grid; place-items: center; flex: none; }
+.round svg { width: 16px; height: 16px; }
+
+.export { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 16px; }
+.export > div { align-content: start; }
+@media (max-width: 1100px) { .export { grid-template-columns: minmax(0, 1fr); } }
+.actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+@media (max-width: 420px) { .actions { grid-template-columns: minmax(0, 1fr); } }
+.steps { margin: 0; padding-left: 1.3em; display: grid; gap: 6px; color: var(--fg); }
+.steps li::marker { color: var(--accent); font-weight: 600; }
+code, kbd { font-family: var(--font-mono); font-size: 13px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
+.exprs { font-family: var(--math); font-size: 17px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.exprs div { display: flex; gap: 10px; align-items: center; padding: 6px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; overflow: hidden; }
+.exprs div:last-child { border-bottom: 0; }
+.exprs b { width: 14px; height: 14px; border-radius: 50%; flex: none; border: 1px solid var(--line); }
+.exprs span { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--fg); color: var(--bg);
+  padding: 10px 16px; border-radius: 8px; font-size: 14px; box-shadow: var(--shadow); z-index: 20; max-width: calc(100% - 32px); }
+textarea.fallback { width: 100%; height: 120px; font: 12px var(--font-mono); border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <h1>img2desmos <span class="eq">→</span> y=f(x)</h1>
+      <p>Trace an image or video into Desmos expressions. Runs entirely in your browser.</p>
+    </div>
+    <div class="spacer"></div>
+    <span class="chip" title="Your files never leave this page"><i></i>Nothing is uploaded</span>
+  </header>
+
+  <div class="grid">
+    <aside class="rail">
+      <section class="card" aria-labelledby="h-src">
+        <h2 id="h-src">Source</h2>
+        <label class="drop" id="drop" for="file">
+          <strong>Drop an image or video</strong>
+          <small>PNG, JPG, GIF, WebP · MP4, WebM, MOV</small>
+          <input type="file" id="file" accept="image/*,video/*" hidden>
+        </label>
+        <dl class="fileinfo" id="fileinfo"></dl>
+      </section>
+
+      <section class="card" aria-labelledby="h-style">
+        <h2 id="h-style">Style</h2>
+        <div class="seg" role="group" aria-label="Drawing style">
+          <button type="button" data-mode="edges" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17c3-8 6-8 9 0s6 8 9-6"/></svg>Lines</button>
+          <button type="button" data-mode="fill" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M4 19l5-12 5 6 3-4 3 10z" fill="currentColor"/></svg>Silhouette</button>
+          <button type="button" data-mode="color" aria-pressed="true"><svg viewBox="0 0 24 24"><circle cx="9" cy="10" r="5" fill="#c74440"/><circle cx="15" cy="10" r="5" fill="#2d70b3" fill-opacity=".85"/><circle cx="12" cy="15" r="5" fill="#388c46" fill-opacity=".8"/></svg>Color</button>
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="h-detail">
+        <h2 id="h-detail">Detail</h2>
+        <div class="field"><div class="row"><label for="size">Resolution</label><output id="size-o"></output></div>
+          <input type="range" id="size" min="80" max="1000" step="10" value="400"><span class="hint">Longest side traced, in pixels</span></div>
+        <div class="field"><div class="row"><label for="detail">Simplify</label><output id="detail-o"></output></div>
+          <input type="range" id="detail" min="0.2" max="6" step="0.1" value="1"><span class="hint">Higher keeps fewer points</span></div>
+        <div class="field"><div class="row"><label for="minlen">Min outline</label><output id="minlen-o"></output></div>
+          <input type="range" id="minlen" min="0" max="150" step="1" value="10"><span class="hint">Drops specks shorter than this</span></div>
+        <div class="field"><div class="row"><label for="maxcurves">Max curves</label><output id="maxcurves-o"></output></div>
+          <input type="range" id="maxcurves" min="10" max="3000" step="10" value="1500"></div>
+        <div class="field" id="opt-colors"><div class="row"><label for="colors">Colors</label><output id="colors-o"></output></div>
+          <input type="range" id="colors" min="2" max="32" step="1" value="8"><span class="hint">More colors, more detail, bigger output</span></div>
+        <div class="field" id="opt-fill" hidden>
+          <div class="checks"><label><input type="checkbox" id="autothr" checked> Auto threshold</label><label><input type="checkbox" id="invert"> Invert</label></div>
+          <div class="row"><label for="thr">Threshold</label><output id="thr-o"></output></div>
+          <input type="range" id="thr" min="0" max="255" step="1" value="128" disabled>
+        </div>
+      </section>
+
+      <section class="card" id="video-card" aria-labelledby="h-video" hidden>
+        <h2 id="h-video">Video</h2>
+        <div class="field"><div class="row"><label for="fps">Frames per second</label><output id="fps-o"></output></div>
+          <input type="range" id="fps" min="1" max="30" step="1" value="10"></div>
+        <div class="nums">
+          <div class="field"><label for="start">Start (s)</label><input type="number" id="start" min="0" step="0.5" value="0"></div>
+          <div class="field"><label for="dur">Length (s)</label><input type="number" id="dur" min="0" step="1" placeholder="all"></div>
+        </div>
+        <div class="checks"><label><input type="checkbox" id="loop" checked> Loop</label><label><input type="checkbox" id="audio" checked> Include sound</label></div>
+      </section>
+
+      <section class="card">
+        <button class="btn primary" id="convert" type="button">Convert</button>
+        <div class="progress" aria-hidden="true"><div id="bar"></div></div>
+        <div class="status" id="status" role="status"></div>
+      </section>
+    </aside>
+
+    <main style="display:grid;gap:16px;min-width:0">
+      <section class="stage" aria-labelledby="h-stage">
+        <div class="stage-head">
+          <h2 id="h-stage">Graph preview</h2>
+          <span class="stats" id="stats"></span>
+        </div>
+        <div class="paper" id="paper">
+          <canvas id="cv" aria-label="Traced preview on graph paper"></canvas>
+          <span class="badge" id="badge">live preview</span>
+          <div class="zoom">
+            <button type="button" id="zin" aria-label="Zoom in"><svg width="14" height="14" viewBox="0 0 14 14"><path d="M7 1v12M1 7h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+            <button type="button" id="zout" aria-label="Zoom out"><svg width="14" height="14" viewBox="0 0 14 14"><path d="M1 7h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+            <button type="button" id="zhome" aria-label="Fit to view"><svg width="16" height="16" viewBox="0 0 20 20"><path fill="currentColor" d="M10 2.5L2 9.5h2.5V17h4.2v-4.5h2.6V17h4.2V9.5H18z"/></svg></button>
+          </div>
+        </div>
+        <div class="player" id="player" hidden>
+          <button class="round" id="play" type="button" aria-label="Play"></button>
+          <span class="tex"><i>t</i> = <span id="tval">0.00</span></span>
+          <input type="range" id="scrub" min="0" max="1" step="0.01" value="0" aria-label="Time">
+          <span class="stats" id="tdur" style="margin-left:0"></span>
+        </div>
+      </section>
+
+      <section class="card export" aria-labelledby="h-export">
+        <div style="display:grid;gap:10px;min-width:0">
+          <h2 id="h-export">Use it</h2>
+          <div class="actions">
+            <button class="btn primary" id="copy" type="button" disabled><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="5" y="5" width="9" height="9" rx="1.5"/><path d="M11 5V3.5A1.5 1.5 0 0 0 9.5 2h-6A1.5 1.5 0 0 0 2 3.5v6A1.5 1.5 0 0 0 3.5 11H5"/></svg>Copy Desmos code</button>
+            <button class="btn" id="copyloader" type="button"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 5h4l1.5 2H14v6.5H2z" stroke-linejoin="round"/></svg>Copy loader</button>
+            <button class="btn" id="dl-desmos" type="button" disabled><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v9M4.5 7.5L8 11l3.5-3.5M2.5 14h11"/></svg>Download for Desmos</button>
+            <button class="btn" id="dl-viewer" type="button" disabled><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v9M4.5 7.5L8 11l3.5-3.5M2.5 14h11"/></svg>Download graph viewer</button>
+          </div>
+          <div class="checks"><label><input type="checkbox" id="rawjson"> Raw JSON download (for <code>Calc.setState</code>)</label></div>
+          <div class="status" id="estatus" role="status"></div>
+          <textarea class="fallback" id="fallback" hidden readonly aria-label="Desmos code to copy"></textarea>
+        </div>
+        <div style="display:grid;gap:10px;min-width:0">
+          <h2>Paste into Desmos</h2>
+          <ol class="steps">
+            <li>Open <a href="https://www.desmos.com/calculator" target="_blank" rel="noopener">desmos.com/calculator</a> and press <kbd>F12</kbd>, then pick <b>Console</b>.</li>
+            <li>Paste the copied code and press <kbd>Enter</kbd>. Chrome may ask you to type <code>allow pasting</code> first.</li>
+            <li>For big files, paste the <b>loader</b> instead, click the blue button it adds, and pick the downloaded <code>.desmos.txt</code>.</li>
+          </ol>
+          <div class="exprs" id="exprs" aria-label="First expressions"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script id="tracer-src">
+/* ===== Tracer: pure functions, also run inside Web Workers ===== */
+const DX = [1, 1, 0, -1, -1, -1, 0, 1], DY = [0, 1, 1, 1, 0, -1, -1, -1];
+
+function toGray(px, n) {
+  const g = new Uint8ClampedArray(n);
+  for (let i = 0, j = 0; i < n; i++, j += 4) g[i] = (px[j] * 299 + px[j + 1] * 587 + px[j + 2] * 114 + 500) / 1000;
+  return g;
+}
+function blur5(s, w, h) {  // separable [1 4 6 4 1]/16, clamped edges
+  const t = new Float32Array(w * h), o = new Uint8ClampedArray(w * h);
+  for (let y = 0; y < h; y++) {
+    const r = y * w;
+    for (let x = 0; x < w; x++) {
+      const a = s[r + Math.max(0, x - 2)], b = s[r + Math.max(0, x - 1)], c = s[r + x],
+            d = s[r + Math.min(w - 1, x + 1)], e = s[r + Math.min(w - 1, x + 2)];
+      t[r + x] = (a + 4 * b + 6 * c + 4 * d + e) / 16;
+    }
+  }
+  for (let y = 0; y < h; y++) {
+    const y0 = Math.max(0, y - 2) * w, y1 = Math.max(0, y - 1) * w, y3 = Math.min(h - 1, y + 1) * w, y4 = Math.min(h - 1, y + 2) * w, r = y * w;
+    for (let x = 0; x < w; x++) o[r + x] = (t[y0 + x] + 4 * t[y1 + x] + 6 * t[r + x] + 4 * t[y3 + x] + t[y4 + x]) / 16 + 0.5;
+  }
+  return o;
+}
+function hist(a) { const hst = new Uint32Array(256); for (let i = 0; i < a.length; i++) hst[a[i]]++; return hst; }
+function median(a) {
+  const hst = hist(a), half = a.length / 2; let c = 0;
+  for (let v = 0; v < 256; v++) { c += hst[v]; if (c >= half) return v; }
+  return 255;
+}
+function otsu(a) {
+  const hst = hist(a), n = a.length; let sum = 0;
+  for (let v = 0; v < 256; v++) sum += v * hst[v];
+  let sumB = 0, wB = 0, best = 0, t = 0;
+  for (let v = 0; v < 256; v++) {
+    wB += hst[v]; if (!wB) continue;
+    const wF = n - wB; if (!wF) break;
+    sumB += v * hst[v];
+    const mB = sumB / wB, mF = (sum - sumB) / wF, between = wB * wF * (mB - mF) * (mB - mF);
+    if (between > best) { best = between; t = v; }
+  }
+  return t;
+}
+function canny(b, w, h, lo, hi) {
+  const n = w * h, mag = new Int32Array(n), dir = new Uint8Array(n);
+  for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
+    const i = y * w + x;
+    const gx = (b[i - w + 1] + 2 * b[i + 1] + b[i + w + 1]) - (b[i - w - 1] + 2 * b[i - 1] + b[i + w - 1]);
+    const gy = (b[i + w - 1] + 2 * b[i + w] + b[i + w + 1]) - (b[i - w - 1] + 2 * b[i - w] + b[i - w + 1]);
+    const ax = Math.abs(gx), ay = Math.abs(gy);
+    mag[i] = ax + ay;
+    dir[i] = ay <= ax * 0.41421356 ? 0 : ay >= ax * 2.41421356 ? 1 : (gx > 0) === (gy > 0) ? 2 : 3;
+  }
+  const st = new Uint8Array(n), stack = [];
+  for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
+    const i = y * w + x, m = mag[i];
+    if (m <= lo) continue;
+    const d = dir[i];
+    const n1 = d === 0 ? i - 1 : d === 1 ? i - w : d === 2 ? i - w - 1 : i - w + 1;
+    const n2 = d === 0 ? i + 1 : d === 1 ? i + w : d === 2 ? i + w + 1 : i + w - 1;
+    if (m > mag[n1] && m >= mag[n2]) { st[i] = m > hi ? 2 : 1; if (m > hi) stack.push(i); }
+  }
+  const out = new Uint8Array(n);
+  while (stack.length) {
+    const i = stack.pop();
+    if (out[i]) continue;
+    out[i] = 1;
+    const x = i % w, y = (i / w) | 0;
+    for (let k = 0; k < 8; k++) {
+      const xx = x + DX[k], yy = y + DY[k];
+      if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue;
+      const j = yy * w + xx;
+      if (st[j] && !out[j]) stack.push(j);
+    }
+  }
+  return out;
+}
+/* Suzuki-Abe border following. Returns [{pts:Int32Array [x,y,...], hole}] in pixel coords. */
+function findContours(mask, w, h, outerOnly) {
+  const W = w + 2, H = h + 2, f = new Int32Array(W * H);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (mask[y * w + x]) f[(y + 1) * W + x + 1] = 1;
+  const off = DX.map((dx, k) => dx + DY[k] * W);
+  const res = []; let nbd = 1;
+  for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
+    const p = y * W + x, v = f[p];
+    if (v === 0) continue;
+    let from, hole;
+    if (v === 1 && f[p - 1] === 0) { from = 4; hole = false; }
+    else if (v >= 1 && f[p + 1] === 0) { from = 0; hole = true; }
+    else continue;
+    nbd++;
+    let found = -1;
+    for (let k = 0; k < 8; k++) { const d = (from + k) & 7; if (f[p + off[d]] !== 0) { found = d; break; } }
+    if (found < 0) { f[p] = -nbd; if (!(outerOnly && hole)) res.push({ pts: Int32Array.of(x - 1, y - 1), hole }); continue; }
+    const p1 = p + off[found], pts = [];
+    let p3 = p, prev = found, guard = 4 * W * H;
+    while (guard-- > 0) {
+      let p4d = -1, eastZero = false;
+      for (let k = 1; k <= 8; k++) {
+        const d = (prev - k + 8) & 7;
+        if (f[p3 + off[d]] !== 0) { p4d = d; break; }
+        if (d === 0) eastZero = true;
+      }
+      if (eastZero) f[p3] = -nbd; else if (f[p3] === 1) f[p3] = nbd;
+      pts.push((p3 % W) - 1, ((p3 / W) | 0) - 1);
+      const p4 = p3 + off[p4d];
+      if (p4 === p && p3 === p1) break;
+      prev = (p4d + 4) & 7; p3 = p4;
+    }
+    if (!(outerOnly && hole)) res.push({ pts: Int32Array.from(pts), hole });
+  }
+  return res;
+}
+function arcLength(p) {
+  const n = p.length / 2; let L = 0;
+  for (let i = 0; i < n; i++) { const j = (i + 1) % n; L += Math.hypot(p[2 * j] - p[2 * i], p[2 * j + 1] - p[2 * i + 1]); }
+  return L;
+}
+function area(p) {
+  const n = p.length / 2; let a = 0;
+  for (let i = 0; i < n; i++) { const j = (i + 1) % n; a += p[2 * i] * p[2 * j + 1] - p[2 * j] * p[2 * i + 1]; }
+  return Math.abs(a) / 2;
+}
+function rdpIdx(p, idx, eps) {  // Ramer-Douglas-Peucker over an index path; returns kept indices
+  const m = idx.length; if (m < 3) return idx.slice();
+  const keep = new Uint8Array(m); keep[0] = keep[m - 1] = 1;
+  const stack = [0, m - 1];
+  while (stack.length) {
+    const b = stack.pop(), a = stack.pop();
+    const ax = p[2 * idx[a]], ay = p[2 * idx[a] + 1], bx = p[2 * idx[b]], by = p[2 * idx[b] + 1];
+    const dx = bx - ax, dy = by - ay, len = Math.hypot(dx, dy);
+    let best = -1, bi = -1;
+    for (let k = a + 1; k < b; k++) {
+      const px = p[2 * idx[k]], py = p[2 * idx[k] + 1];
+      const d = len > 0 ? Math.abs((py - ay) * dx - (px - ax) * dy) / len : Math.hypot(px - ax, py - ay);
+      if (d > best) { best = d; bi = k; }
+    }
+    if (best > eps) { keep[bi] = 1; stack.push(a, bi, bi, b); }
+  }
+  const out = []; for (let k = 0; k < m; k++) if (keep[k]) out.push(idx[k]);
+  return out;
+}
+function simplify(p, eps, closed) {
+  const n = p.length / 2;
+  let idx;
+  if (!closed || n < 4) {
+    idx = rdpIdx(p, Array.from({ length: n }, (_, i) => i), eps);
+  } else {
+    let far = 0, fd = -1;
+    for (let i = 1; i < n; i++) { const d = (p[2 * i] - p[0]) ** 2 + (p[2 * i + 1] - p[1]) ** 2; if (d > fd) { fd = d; far = i; } }
+    const a = rdpIdx(p, Array.from({ length: far + 1 }, (_, i) => i), eps);
+    const bPath = Array.from({ length: n - far }, (_, i) => far + i); bPath.push(0);
+    const b = rdpIdx(p, bPath, eps);
+    idx = a.concat(b.slice(1, -1));
+  }
+  const out = new Array(idx.length * 2);
+  for (let k = 0; k < idx.length; k++) { out[2 * k] = p[2 * idx[k]]; out[2 * k + 1] = p[2 * idx[k] + 1]; }
+  return out;
+}
+function flipY(a, h) { for (let i = 1; i < a.length; i += 2) a[i] = h - a[i]; return a; }
+function hex(r, g, b) { return "#" + ((1 << 24) | (Math.round(r) << 16) | (Math.round(g) << 8) | Math.round(b)).toString(16).slice(1); }
+
+function rng(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+function makePalette(images, k) {  // images: [{px, w, h}] ; k-means++ on sampled pixels
+  const rand = rng(7), total = images.reduce((s, im) => s + im.w * im.h, 0), want = Math.min(20000, total);
+  const S = new Float32Array(want * 3); let n = 0;
+  for (const im of images) {
+    const share = Math.round(want * (im.w * im.h) / total);
+    for (let s = 0; s < share && n < want; s++, n++) {
+      const j = Math.floor(rand() * im.w * im.h) * 4;
+      S[3 * n] = im.px[j]; S[3 * n + 1] = im.px[j + 1]; S[3 * n + 2] = im.px[j + 2];
+    }
+  }
+  k = Math.max(2, Math.min(k, n));
+  const C = new Float32Array(k * 3), d2 = new Float32Array(n).fill(Infinity);
+  let c0 = Math.floor(rand() * n); C.set(S.subarray(3 * c0, 3 * c0 + 3), 0);
+  for (let c = 1; c < k; c++) {
+    let sum = 0;
+    for (let i = 0; i < n; i++) {
+      const dr = S[3 * i] - C[3 * (c - 1)], dg = S[3 * i + 1] - C[3 * (c - 1) + 1], db = S[3 * i + 2] - C[3 * (c - 1) + 2];
+      const d = dr * dr + dg * dg + db * db; if (d < d2[i]) d2[i] = d; sum += d2[i];
+    }
+    let r = rand() * sum, pick = n - 1;
+    for (let i = 0; i < n; i++) { r -= d2[i]; if (r <= 0) { pick = i; break; } }
+    C.set(S.subarray(3 * pick, 3 * pick + 3), 3 * c);
+  }
+  const lab = new Uint8Array(n), acc = new Float64Array(k * 4);
+  for (let it = 0; it < 14; it++) {
+    acc.fill(0);
+    for (let i = 0; i < n; i++) {
+      let best = 0, bd = Infinity;
+      for (let c = 0; c < k; c++) {
+        const dr = S[3 * i] - C[3 * c], dg = S[3 * i + 1] - C[3 * c + 1], db = S[3 * i + 2] - C[3 * c + 2];
+        const d = dr * dr + dg * dg + db * db; if (d < bd) { bd = d; best = c; }
+      }
+      lab[i] = best; acc[4 * best] += S[3 * i]; acc[4 * best + 1] += S[3 * i + 1]; acc[4 * best + 2] += S[3 * i + 2]; acc[4 * best + 3]++;
+    }
+    for (let c = 0; c < k; c++) if (acc[4 * c + 3]) for (let q = 0; q < 3; q++) C[3 * c + q] = acc[4 * c + q] / acc[4 * c + 3];
+  }
+  return Array.from(C);
+}
+function paletteLut(pal) {
+  const k = pal.length / 3, lut = new Uint8Array(32768);
+  for (let r = 0; r < 32; r++) for (let g = 0; g < 32; g++) for (let b = 0; b < 32; b++) {
+    const R = r * 8 + 4, G = g * 8 + 4, B = b * 8 + 4; let best = 0, bd = Infinity;
+    for (let c = 0; c < k; c++) { const d = (R - pal[3 * c]) ** 2 + (G - pal[3 * c + 1]) ** 2 + (B - pal[3 * c + 2]) ** 2; if (d < bd) { bd = d; best = c; } }
+    lut[(r << 10) | (g << 5) | b] = best;
+  }
+  return lut;
+}
+function med9(a) {  // median of 9 via partial sort
+  for (let i = 0; i <= 4; i++) { let m = i; for (let j = i + 1; j < 9; j++) if (a[j] < a[m]) m = j; const t = a[i]; a[i] = a[m]; a[m] = t; }
+  return a[4];
+}
+function traceColor(px, w, h, o) {
+  let pal = o.palette, lut = o.lut;
+  if (!pal) { pal = makePalette([{ px, w, h }], o.colors); lut = paletteLut(pal); }
+  const k = pal.length / 3, labels = new Uint8Array(w * h), counts = new Uint32Array(k), win = new Uint8Array(9);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const c = [0, 0, 0];
+    for (let ch = 0; ch < 3; ch++) {
+      let q = 0;
+      for (let dy = -1; dy <= 1; dy++) {
+        const yy = Math.min(h - 1, Math.max(0, y + dy)) * w;
+        for (let dx = -1; dx <= 1; dx++) win[q++] = px[(yy + Math.min(w - 1, Math.max(0, x + dx))) * 4 + ch];
+      }
+      c[ch] = med9(win);
+    }
+    const l = lut[((c[0] >> 3) << 10) | ((c[1] >> 3) << 5) | (c[2] >> 3)];
+    labels[y * w + x] = l; counts[l]++;
+  }
+  const shapes = [], mask = new Uint8Array(w * h);
+  for (let c = 0; c < k; c++) {
+    if (!counts[c]) continue;
+    for (let i = 0; i < mask.length; i++) mask[i] = labels[i] === c ? 1 : 0;
+    const color = hex(pal[3 * c], pal[3 * c + 1], pal[3 * c + 2]);
+    for (const b of findContours(mask, w, h, true)) {
+      if (b.pts.length < 6 || arcLength(b.pts) < o.minLength) continue;
+      const s = simplify(b.pts, o.detail, true);
+      if (s.length < 6) continue;
+      shapes.push({ a: area(b.pts), pts: flipY(s, h), color, poly: true });
+    }
+  }
+  shapes.sort((p, q) => q.a - p.a);
+  const kept = o.maxCurves ? shapes.slice(0, Math.max(1, o.maxCurves - 1)) : shapes;
+  let bi = 0; for (let c = 1; c < k; c++) if (counts[c] > counts[bi]) bi = c;
+  const bg = { pts: [0, 0, w, 0, w, h, 0, h], color: hex(pal[3 * bi], pal[3 * bi + 1], pal[3 * bi + 2]), poly: true };
+  return [bg].concat(kept.map(({ pts, color, poly }) => ({ pts, color, poly })));
+}
+function traceFrame(px, w, h, o) {
+  if (o.mode === "color") return traceColor(px, w, h, o);
+  const b = blur5(toGray(px, w * h), w, h);
+  let mask;
+  if (o.mode === "edges") {
+    let lo, hi;
+    if (o.low != null && o.high != null) { lo = o.low; hi = o.high; }
+    else { const m = median(b); lo = Math.max(0, 0.66 * m) | 0; hi = Math.min(255, 1.33 * m) | 0; if (hi - lo < 20) { lo = 50; hi = 150; } }
+    mask = canny(b, w, h, lo, hi);
+  } else {
+    const t = o.threshold == null ? otsu(b) : o.threshold;
+    mask = new Uint8Array(w * h);
+    for (let i = 0; i < mask.length; i++) mask[i] = o.invert ? (b[i] > t ? 1 : 0) : (b[i] <= t ? 1 : 0);
+  }
+  const closed = o.mode === "fill", shapes = [];
+  for (const c of findContours(mask, w, h, false)) {
+    const len = arcLength(c.pts);
+    if (len < o.minLength) continue;
+    const s = simplify(c.pts, o.detail, closed);
+    if (s.length < (closed ? 6 : 4)) continue;
+    shapes.push({ len, pts: flipY(s, h), hole: closed && c.hole, poly: closed });
+  }
+  let list = shapes;
+  if (o.maxCurves && list.length > o.maxCurves) list = list.slice().sort((p, q) => q.len - p.len).slice(0, o.maxCurves);
+  list = list.filter((s) => !s.hole).concat(list.filter((s) => s.hole));
+  return list.map((s) => ({ pts: s.pts, color: s.hole ? "#ffffff" : "#000000", poly: s.poly }));
+}
+</script>
+
+<script>
+/* ===== Shared output builders (kept in sync with img2desmos.py) ===== */
+const VIEWER_HTML = /*@VIEWER_HTML@*/"";
+const PLAYER_JS = /*@PLAYER_JS@*/"";
+const LOADER_JS = /*@LOADER_JS@*/"";
+
+const $ = (s) => document.querySelector(s);
+const state = { src: null, result: null, mode: "color", busy: false, cancel: false, out: null };
+
+// ---------- settings ----------
+const ctl = {
+  size: [$("#size"), (v) => v + " px"], detail: [$("#detail"), (v) => (+v).toFixed(1)],
+  minlen: [$("#minlen"), (v) => v + " px"], maxcurves: [$("#maxcurves"), (v) => v],
+  colors: [$("#colors"), (v) => v], thr: [$("#thr"), (v) => v], fps: [$("#fps"), (v) => v + " fps"],
+};
+for (const [k, [el, fmt]] of Object.entries(ctl)) {
+  const o = $("#" + k + "-o");
+  const upd = () => { o.textContent = fmt(el.value); };
+  el.addEventListener("input", () => { upd(); schedulePreview(); });
+  upd();
+}
+for (const id of ["autothr", "invert", "start"]) $("#" + id).addEventListener("input", () => { $("#thr").disabled = $("#autothr").checked; schedulePreview(true); });
+document.querySelectorAll(".seg button").forEach((b) => b.addEventListener("click", () => setMode(b.dataset.mode)));
+function setMode(m) {
+  state.mode = m;
+  document.querySelectorAll(".seg button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.mode === m)));
+  $("#opt-colors").hidden = m !== "color";
+  $("#opt-fill").hidden = m !== "fill";
+  schedulePreview(true);
+}
+function opts() {
+  return {
+    mode: state.mode, size: +$("#size").value, detail: +$("#detail").value, minLength: +$("#minlen").value,
+    maxCurves: +$("#maxcurves").value, colors: +$("#colors").value,
+    threshold: $("#autothr").checked ? null : +$("#thr").value, invert: $("#invert").checked,
+    fps: +$("#fps").value, start: Math.max(0, +$("#start").value || 0), dur: +$("#dur").value || 0,
+    loop: $("#loop").checked, audio: $("#audio").checked,
+  };
+}
+
+// ---------- source loading ----------
+const work = document.createElement("canvas"), wctx = work.getContext("2d", { willReadFrequently: true });
+function grab(source, sw, sh, maxSize) {
+  const sc = Math.min(1, maxSize / Math.max(sw, sh));
+  const w = Math.max(1, Math.round(sw * sc)), h = Math.max(1, Math.round(sh * sc));
+  work.width = w; work.height = h;
+  wctx.fillStyle = "#fff"; wctx.fillRect(0, 0, w, h);  // transparent PNGs sit on white
+  wctx.drawImage(source, 0, 0, w, h);
+  return { px: wctx.getImageData(0, 0, w, h).data, w, h };
+}
+function baseName(n) { return n.replace(/\.[^.]+$/, "") || "graph"; }
+function fmtBytes(n) { return n > 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB"; }
+function setInfo(rows) { $("#fileinfo").innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join(""); }
+
+async function loadFile(file) {
+  if (state.busy) return;
+  stopPlayback(); state.result = null; refreshExports();
+  const isVideo = file.type.startsWith("video/") || /\.(mp4|webm|mov|m4v|mkv|ogv)$/i.test(file.name);
+  const url = URL.createObjectURL(file);
+  try {
+    if (isVideo) {
+      const v = document.createElement("video");
+      v.muted = true; v.playsInline = true; v.preload = "auto"; v.src = url;
+      await new Promise((res, rej) => { v.onloadeddata = res; v.onerror = () => rej(new Error("This browser can't play that video format.")); });
+      state.src = { kind: "video", name: baseName(file.name), file, el: v, w: v.videoWidth, h: v.videoHeight, duration: v.duration };
+      setInfo([["File", esc(file.name)], ["Video", `${v.videoWidth}×${v.videoHeight} · ${v.duration.toFixed(1)} s`], ["Size", fmtBytes(file.size)]]);
+      $("#size").value = 240; $("#maxcurves").value = 150;
+    } else {
+      const img = new Image(); img.src = url;
+      await img.decode().catch(() => { throw new Error("That file isn't an image this browser can read."); });
+      state.src = { kind: "image", name: baseName(file.name), file, el: img, w: img.naturalWidth, h: img.naturalHeight };
+      setInfo([["File", esc(file.name)], ["Image", `${img.naturalWidth}×${img.naturalHeight}`], ["Size", fmtBytes(file.size)]]);
+      $("#size").value = 500; $("#maxcurves").value = 1500;
+    }
+    for (const k of ["size", "maxcurves"]) $("#" + k).dispatchEvent(new Event("input"));
+    $("#video-card").hidden = !isVideo;
+    $("#start").value = 0; $("#dur").value = "";
+    setStatus("Adjust the settings, then press Convert.");
+    state.stillKey = null; schedulePreview(true);
+  } catch (e) { setStatus(e.message, "err"); }
+}
+function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+$("#file").addEventListener("change", (e) => e.target.files[0] && loadFile(e.target.files[0]));
+const drop = $("#drop");
+["dragenter", "dragover"].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave", "drop"].forEach((t) => drop.addEventListener(t, () => drop.classList.remove("over")));
+drop.addEventListener("drop", (e) => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) loadFile(f); });
+window.addEventListener("dragover", (e) => e.preventDefault());
+window.addEventListener("drop", (e) => { e.preventDefault(); const f = e.dataTransfer && e.dataTransfer.files[0]; if (f) loadFile(f); });
+
+function seek(v, t) {
+  return new Promise((res) => {
+    const done = () => { v.removeEventListener("seeked", done); res(); };
+    v.addEventListener("seeked", done);
+    v.currentTime = Math.min(Math.max(0, t), Math.max(0, v.duration - 0.001));
+  });
+}
+
+// ---------- sample (so the page opens with something real on the paper) ----------
+function makeSample() {
+  const c = document.createElement("canvas"); c.width = 480; c.height = 320;
+  const g = c.getContext("2d");
+  const sky = g.createLinearGradient(0, 0, 0, 230); sky.addColorStop(0, "#2d70b3"); sky.addColorStop(1, "#9cc7ec");
+  g.fillStyle = sky; g.fillRect(0, 0, 480, 320);
+  g.fillStyle = "#fa7e19"; g.beginPath(); g.arc(380, 70, 38, 0, 7); g.fill();
+  g.fillStyle = "#388c46"; g.beginPath(); g.moveTo(0, 320);
+  for (let x = 0; x <= 480; x += 4) g.lineTo(x, 235 - 28 * Math.sin(x / 48));
+  g.lineTo(480, 320); g.fill();
+  g.strokeStyle = "#c74440"; g.lineWidth = 9; g.lineCap = "round"; g.beginPath();
+  for (let x = 30; x <= 300; x += 3) g[x === 30 ? "moveTo" : "lineTo"](x, 140 - 45 * Math.sin((x - 30) / 43));
+  g.stroke();
+  g.fillStyle = "#ffffff"; g.font = "bold 34px Georgia, serif"; g.fillText("y = sin x", 40, 290);
+  return c;
+}
+
+// ---------- tracing on workers ----------
+const TRACER = document.getElementById("tracer-src").textContent;
+let pool = null;
+function getPool() {
+  if (pool !== null) return pool;
+  try {
+    const src = TRACER + "\nonmessage = (e) => { const d = e.data; let r; try { r = { id: d.id, shapes: traceFrame(new Uint8ClampedArray(d.buf), d.w, d.h, d.o) }; } catch (err) { r = { id: d.id, error: String(err) }; } postMessage(r); };";
+    const url = URL.createObjectURL(new Blob([src], { type: "text/javascript" }));
+    const n = Math.max(1, Math.min(6, (navigator.hardwareConcurrency || 4) - 1));
+    pool = Array.from({ length: n }, () => ({ w: new Worker(url), busy: false }));
+  } catch (e) { pool = []; }
+  return pool;
+}
+let jobSeq = 0;
+function traceAsync(fr, o) {
+  const p = getPool();
+  if (!p.length) return Promise.resolve(traceFrame(fr.px, fr.w, fr.h, o));
+  return new Promise((resolve, reject) => {
+    const run = () => {
+      const slot = p.find((s) => !s.busy);
+      if (!slot) { waiters.push(run); return; }
+      slot.busy = true; const id = ++jobSeq;
+      slot.w.onmessage = (e) => {
+        slot.busy = false; const next = waiters.shift(); if (next) next();
+        e.data.error ? reject(new Error(e.data.error)) : resolve(e.data.shapes);
+      };
+      const buf = fr.px.buffer.slice(0);
+      slot.w.postMessage({ id, buf, w: fr.w, h: fr.h, o }, [buf]);
+    };
+    run();
+  });
+}
+const waiters = [];
+function freeSlots() { const p = getPool(); return p.length ? p.filter((s) => !s.busy).length : 1; }
+
+// ---------- live preview of the current settings ----------
+let previewTimer = 0;
+function schedulePreview(now) {
+  if (state.result && state.result.kind === "video" && playing) return;
+  clearTimeout(previewTimer);
+  previewTimer = setTimeout(renderStill, now ? 10 : 160);
+}
+async function renderStill() {
+  if (!state.src || state.busy) return;
+  const o = opts();
+  if (state.result) { state.result = null; stopPlayback(); refreshExports(); }
+  let fr;
+  if (state.src.kind === "video") {
+    const key = o.start + "|" + o.size;
+    if (state.stillKey !== key) {
+      await seek(state.src.el, o.start);
+      state.stillFrame = grab(state.src.el, state.src.w, state.src.h, o.size); state.stillKey = key;
+    }
+    fr = state.stillFrame;
+  } else fr = grab(state.src.el, state.src.w, state.src.h, o.size);
+  const shapes = traceFrame(fr.px, fr.w, fr.h, { ...o, palette: null });
+  view.data = { w: fr.w, h: fr.h, frames: [shapes] }; view.frame = 0;
+  if (!view.userMoved) fit();
+  $("#badge").textContent = state.src.kind === "video" ? `live preview · frame at ${o.start.toFixed(1)} s` : "live preview";
+  setStats(shapes, fr.w, fr.h);
+  renderExprs(shapes, o.mode);
+  dirty = true;
+}
+function setStats(shapes, w, h, extra) {
+  const pts = shapes.reduce((s, x) => s + x.pts.length / 2, 0);
+  $("#stats").textContent = `${shapes.length} curves · ${pts.toLocaleString()} points · ${w}×${h}${extra || ""}`;
+}
+
+// ---------- convert ----------
+$("#convert").addEventListener("click", () => (state.busy ? (state.cancel = true) : convert()));
+function setStatus(msg, kind) { const s = $("#status"); s.textContent = msg; s.className = "status" + (kind ? " " + kind : ""); }
+function setBar(f) { $("#bar").style.width = Math.round(f * 100) + "%"; }
+
+async function convert() {
+  if (!state.src) return;
+  const o = opts(), src = state.src, t0 = performance.now();
+  state.busy = true; state.cancel = false; stopPlayback();
+  $("#convert").textContent = "Cancel"; setBar(0);
+  try {
+    if (src.kind === "image") {
+      setStatus("Tracing…");
+      const fr = grab(src.el, src.w, src.h, o.size);
+      const shapes = await traceAsync(fr, { ...o, palette: null });
+      state.result = { kind: "image", name: src.name, w: fr.w, h: fr.h, frames: [shapes], o };
+    } else {
+      state.result = await convertVideo(src, o);
+    }
+    setBar(1);
+    const r = state.result, secs = ((performance.now() - t0) / 1000).toFixed(1);
+    const curves = r.frames.reduce((s, f) => s + f.length, 0);
+    setStatus(r.kind === "video"
+      ? `Done in ${secs} s · ${r.frames.length} frames · ~${Math.round(curves / r.frames.length)} curves per frame${r.audio ? " · with sound" : ""}`
+      : `Done in ${secs} s · ${curves} curves`, "ok");
+    view.data = r; view.frame = 0; if (!view.userMoved) fit();
+    $("#badge").textContent = r.kind === "video" ? "converted · press play" : "converted";
+    setStats(r.frames[0], r.w, r.h, r.kind === "video" ? ` · ${r.frames.length} frames` : "");
+    renderExprs(r.frames[0], r.o.mode);
+    if (r.kind === "video") setupPlayer(r);
+    state.out = null; refreshExports(); dirty = true;
+  } catch (e) {
+    state.result = null; setBar(0);
+    setStatus(e.message === "cancelled" ? "Cancelled." : "Conversion failed: " + e.message, e.message === "cancelled" ? "" : "err");
+  } finally {
+    state.busy = false; $("#convert").textContent = "Convert";
+  }
+}
+
+async function convertVideo(src, o) {
+  const v = src.el, fps = o.fps;
+  const span = Math.max(0, Math.min(o.dur || Infinity, v.duration - o.start));
+  const count = Math.max(1, Math.floor(span * fps + 1e-6));
+  if (!isFinite(span) || span <= 0) throw new Error("Start time is past the end of the video.");
+  const audioJob = o.audio ? extractAudio(src.file, o.start, count / fps).catch(() => null) : Promise.resolve(null);
+  const to = { ...o };
+  if (o.mode === "color") {
+    setStatus("Picking colors…");
+    const samples = [];
+    for (let i = 0; i < 6; i++) {
+      await seek(v, o.start + (span * i) / 6 + 0.01);
+      samples.push(grab(v, src.w, src.h, Math.min(o.size, 200)));
+    }
+    to.palette = makePalette(samples, o.colors);
+    to.lut = paletteLut(to.palette);
+  }
+  const frames = new Array(count), jobs = [];
+  let w = 0, h = 0, done = 0;
+  const submit = (i, fr) => {
+    w = fr.w; h = fr.h;
+    jobs.push(traceAsync(fr, to).then((s) => {
+      frames[i] = s; done++;
+      setBar(done / count); setStatus(`Tracing frame ${done} / ${count}`);
+    }));
+  };
+  // Fast path: play muted at high speed and grab frames as they are shown (no per-frame seeking).
+  setStatus("Reading frames…");
+  const got = await captureByPlayback(v, src, o, count, submit);
+  if (state.cancel) throw new Error("cancelled");
+  // Anything the fast path missed (or browsers without it): seek to each remaining frame.
+  for (let i = 0; i < count; i++) {
+    if (got.has(i)) continue;
+    if (state.cancel) throw new Error("cancelled");
+    await seek(v, o.start + i / fps + 0.0005);
+    while (!freeSlots()) await new Promise((r) => setTimeout(r, 2));
+    submit(i, grab(v, src.w, src.h, o.size));
+  }
+  await Promise.all(jobs);
+  setStatus("Adding sound…");
+  const audio = await audioJob;
+  return { kind: "video", name: src.name, w, h, fps, loop: o.loop, frames, audio, start: o.start, o };
+}
+
+function captureByPlayback(v, src, o, count, submit) {
+  const got = new Set();
+  if (!("requestVideoFrameCallback" in HTMLVideoElement.prototype)) return Promise.resolve(got);
+  const fps = o.fps, end = count / fps;
+  return seek(v, o.start).then(() => new Promise((resolve) => {
+    let finished = false, next = 0, same = 0;
+    const finish = () => {
+      if (finished) return; finished = true;
+      v.pause(); v.playbackRate = 1; v.removeEventListener("ended", finish); resolve(got);
+    };
+    const onFrame = (_now, meta) => {
+      if (finished) return;
+      if (state.cancel) return finish();
+      const t = meta.mediaTime - o.start, idx = Math.floor(t * fps + 1e-3);
+      // Adapt speed to how fast this screen presents frames: skipped slots -> slow down, repeats -> speed up.
+      if (idx > next) { v.playbackRate = Math.max(1, v.playbackRate * 0.7); same = 0; }
+      else if (idx < next && ++same >= 3) { v.playbackRate = Math.min(16, v.playbackRate * 1.2); same = 0; }
+      if (idx >= next && idx < count) { submit(idx, grab(v, src.w, src.h, o.size)); got.add(idx); next = idx + 1; }
+      setStatus(`Reading frames ${Math.min(count, next)} / ${count}`);
+      if (t >= end - 1e-3 || next >= count) return finish();
+      v.requestVideoFrameCallback(onFrame);
+    };
+    v.muted = true;
+    v.playbackRate = Math.max(1, Math.min(16, Math.floor(50 / fps)));
+    v.addEventListener("ended", finish);
+    v.requestVideoFrameCallback(onFrame);
+    v.play().catch(finish);
+    setTimeout(finish, (end / v.playbackRate) * 1000 * 3 + 5000);  // safety net
+  }));
+}
+
+// audio: decode, trim to the converted span, mono 22 kHz 16-bit WAV as a data URI
+async function extractAudio(file, start, dur) {
+  const buf = await file.arrayBuffer();
+  const Off = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  const decoded = await new Off(1, 1, 44100).decodeAudioData(buf);
+  const sr = 22050, len = Math.max(1, Math.ceil(dur * sr));
+  const ctx = new Off(1, len, sr), node = ctx.createBufferSource();
+  node.buffer = decoded; node.connect(ctx.destination); node.start(0, start, dur);
+  const pcm = (await ctx.startRendering()).getChannelData(0);
+  let peak = 0; for (let i = 0; i < pcm.length; i += 64) peak = Math.max(peak, Math.abs(pcm[i]));
+  if (peak < 1e-4) return null;  // silent track
+  const out = new DataView(new ArrayBuffer(44 + pcm.length * 2));
+  const str = (o, s) => { for (let i = 0; i < s.length; i++) out.setUint8(o + i, s.charCodeAt(i)); };
+  str(0, "RIFF"); out.setUint32(4, 36 + pcm.length * 2, true); str(8, "WAVEfmt ");
+  out.setUint32(16, 16, true); out.setUint16(20, 1, true); out.setUint16(22, 1, true);
+  out.setUint32(24, sr, true); out.setUint32(28, sr * 2, true); out.setUint16(32, 2, true); out.setUint16(34, 16, true);
+  str(36, "data"); out.setUint32(40, pcm.length * 2, true);
+  for (let i = 0; i < pcm.length; i++) out.setInt16(44 + i * 2, Math.max(-1, Math.min(1, pcm[i])) * 32767, true);
+  return "data:audio/wav;base64," + b64(new Uint8Array(out.buffer));
+}
+function b64(bytes) { let s = ""; for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000)); return btoa(s); }
+
+// ---------- outputs ----------
+function styleFor(mode) {
+  return mode === "edges" ? { lines: true, points: false, lineWidth: "1.5" } : { fillOpacity: "1", lineOpacity: "1", lineWidth: "1" };
+}
+function latexOf(s) {
+  let c = ""; const p = s.pts;
+  for (let i = 0; i < p.length; i += 2) c += (i ? "," : "") + "(" + p[i] + "," + p[i + 1] + ")";
+  return s.poly ? "\\operatorname{polygon}([" + c + "])" : "[" + c + "]";
+}
+function boundsOf(w, h) { const pad = 0.05 * Math.max(w, h); return { left: -pad, right: w + pad, bottom: -pad, top: h + pad }; }
+function buildOutputs() {
+  if (state.out) return state.out;
+  const r = state.result, st = styleFor(r.o.mode), b = boundsOf(r.w, r.h);
+  let desmos, json;
+  if (r.kind === "image") {
+    const s = { version: 11, graph: { viewport: { xmin: b.left, xmax: b.right, ymin: b.bottom, ymax: b.top }, showGrid: false, showXAxis: false, showYAxis: false },
+      expressions: { list: r.frames[0].map((x, i) => Object.assign({ type: "expression", id: String(i + 1), latex: latexOf(x), color: x.color }, st)) } };
+    json = JSON.stringify(s); desmos = "Calc.setState(" + json + ");\n";
+  } else {
+    const data = { fps: r.fps, loop: r.loop, bounds: b, style: st, frames: r.frames.map((f) => f.map((x) => [latexOf(x), x.color])), audio: r.audio };
+    json = JSON.stringify(data); desmos = PLAYER_JS.replace("__DATA__", () => json);
+  }
+  const vdata = { fps: r.kind === "video" ? r.fps : 0, loop: !!r.loop, bounds: b, style: st, audio: r.audio || null, title: r.name,
+    frames: r.frames.map((f) => f.map((x) => [x.color, x.poly ? 1 : 0, Array.from(x.pts)])) };
+  const vjson = JSON.stringify(vdata).replace(/<\//g, "<\\/");
+  const viewer = VIEWER_HTML.replace("__DATA__", () => vjson);
+  state.out = { desmos, json, viewer };
+  return state.out;
+}
+function refreshExports() {
+  const ok = !!state.result;
+  for (const id of ["copy", "dl-desmos", "dl-viewer"]) $("#" + id).disabled = !ok;
+  $("#fallback").hidden = true;
+}
+function toast(msg) { const t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => (t.hidden = true), 3200); }
+function setE(msg, kind) { const s = $("#estatus"); s.textContent = msg; s.className = "status" + (kind ? " " + kind : ""); }
+
+async function copyText(text, label) {
+  try { await navigator.clipboard.writeText(text); toast(`${label} copied (${fmtBytes(text.length)}). Paste it into the Desmos console.`); setE(""); }
+  catch (e) {
+    const ta = $("#fallback"); ta.hidden = false; ta.value = text.length > 2e6 ? text.slice(0, 2e6) : text; ta.select();
+    setE(text.length > 2e6 ? "Copying isn't allowed here and this code is too big to show. Use Download for Desmos with the loader." : "Copying isn't allowed here. The code is selected below; press Ctrl+C.", "err");
+  }
+}
+$("#copy").addEventListener("click", () => { if (state.result) copyText(buildOutputs().desmos, "Desmos code"); });
+$("#copyloader").addEventListener("click", () => copyText(LOADER_JS, "Loader"));
+
+let dlNS; // claude.ai downloads capability, when this page runs as an artifact
+if (window.claude && window.claude.use) window.claude.use("downloads").then((d) => { dlNS = d; }).catch(() => { dlNS = null; });
+async function saveFile(filename, data) {
+  if (window.claude && window.claude.use) {
+    const d = dlNS !== undefined ? dlNS : await window.claude.use("downloads").catch(() => null);
+    if (!d) { setE("Downloads aren't available in this view. Use Copy Desmos code instead.", "err"); return; }
+    try { await d.save({ filename, data: new Blob([data]) }); setE("Saved " + filename, "ok"); }
+    catch (e) { if (e && e.code !== "declined") setE("Couldn't save: " + (e.message || e.code), "err"); }
+    return;
+  }
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([data], { type: "text/plain" })); a.download = filename;
+  document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  setE("Saved " + filename, "ok");
+}
+$("#dl-desmos").addEventListener("click", () => {
+  if (!state.result) return;
+  const o = buildOutputs(), raw = $("#rawjson").checked;
+  saveFile(state.result.name + (raw ? ".desmos.json" : ".desmos.txt"), raw ? o.json : o.desmos);
+});
+$("#dl-viewer").addEventListener("click", () => { if (state.result) saveFile(state.result.name + ".viewer.html", buildOutputs().viewer); });
+
+function renderExprs(shapes, mode) {
+  const rows = shapes.slice(0, 4).map((s) => {
+    const p = s.pts, n = Math.min(4, p.length / 2); let c = "";
+    for (let i = 0; i < n; i++) c += (i ? "," : "") + "(" + p[2 * i] + "," + p[2 * i + 1] + ")";
+    const body = (s.poly ? "polygon([" : "[") + c + (p.length / 2 > n ? ",…" : "") + (s.poly ? "])" : "]");
+    return `<div><b style="background:${s.color}"></b><span>${body}</span></div>`;
+  });
+  if (shapes.length > 4) rows.push(`<div style="font-family:var(--font-ui);font-size:13px;color:var(--muted)">+ ${shapes.length - 4} more expressions</div>`);
+  $("#exprs").innerHTML = rows.join("");
+}
+
+// ---------- graph-paper preview ----------
+const cv = $("#cv"), g = cv.getContext("2d");
+const view = { cx: 0, cy: 0, s: 1, data: null, frame: 0, userMoved: false };
+let dirty = true, C = {};
+function readColors() { const cs = getComputedStyle(document.documentElement); for (const k of ["paper", "grid-minor", "grid-major", "axis", "halo", "muted"]) C[k] = cs.getPropertyValue("--" + k).trim(); dirty = true; }
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", readColors);
+new MutationObserver(readColors).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+function size() {
+  const r = cv.getBoundingClientRect(), d = devicePixelRatio || 1;
+  const W = Math.max(1, Math.round(r.width * d)), H = Math.max(1, Math.round(r.height * d));
+  if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
+  return { W: r.width, H: r.height, d };
+}
+function fit() {
+  const { W, H } = size(); const dd = view.data; if (!dd) return;
+  const b = boundsOf(dd.w, dd.h);
+  view.s = Math.min(W / (b.right - b.left), H / (b.top - b.bottom));
+  view.cx = (b.left + b.right) / 2; view.cy = (b.bottom + b.top) / 2; dirty = true;
+}
+function zoomAt(px, py, f) {
+  const { W, H } = size();
+  const wx = view.cx + (px - W / 2) / view.s, wy = view.cy - (py - H / 2) / view.s;
+  view.s *= f; view.cx = wx - (px - W / 2) / view.s; view.cy = wy + (py - H / 2) / view.s;
+  view.userMoved = true; dirty = true;
+}
+function draw() {
+  const { W, H, d } = size();
+  g.setTransform(d, 0, 0, d, 0, 0);
+  g.fillStyle = C.paper; g.fillRect(0, 0, W, H);
+  const sx = (x) => W / 2 + (x - view.cx) * view.s, sy = (y) => H / 2 - (y - view.cy) * view.s;
+  const x0 = view.cx - W / 2 / view.s, x1 = view.cx + W / 2 / view.s, y0 = view.cy - H / 2 / view.s, y1 = view.cy + H / 2 / view.s;
+  const raw = 110 / view.s, mag = Math.pow(10, Math.floor(Math.log10(raw))), nn = raw / mag;
+  const m = nn <= 1 ? 1 : nn <= 2 ? 2 : nn <= 5 ? 5 : 10, step = m * mag, minor = step / (m === 2 ? 4 : 5);
+  const lines = (st, color) => {
+    g.strokeStyle = color; g.lineWidth = 1; g.beginPath();
+    for (let x = Math.ceil(x0 / st) * st; x <= x1; x += st) { const X = Math.round(sx(x)) + 0.5; g.moveTo(X, 0); g.lineTo(X, H); }
+    for (let y = Math.ceil(y0 / st) * st; y <= y1; y += st) { const Y = Math.round(sy(y)) + 0.5; g.moveTo(0, Y); g.lineTo(W, Y); }
+    g.stroke();
+  };
+  lines(minor, C["grid-minor"]); lines(step, C["grid-major"]);
+  const dd = view.data;
+  if (dd) {
+    const shapes = dd.frames[view.frame] || [], lw = dd.o && dd.o.mode === "edges" || state.mode === "edges" && !dd.o ? 1.6 : 1;
+    g.lineJoin = "round"; g.lineCap = "round";
+    for (const s of shapes) {
+      const p = s.pts; if (p.length < 4) continue;
+      g.beginPath(); g.moveTo(sx(p[0]), sy(p[1]));
+      for (let i = 2; i < p.length; i += 2) g.lineTo(sx(p[i]), sy(p[i + 1]));
+      if (s.poly) { g.closePath(); g.fillStyle = s.color; g.fill(); }
+      g.strokeStyle = s.color; g.lineWidth = s.poly ? 1 : lw; g.stroke();
+    }
+  }
+  // axes and numbers on top so they stay readable over the picture
+  const ax = sx(0), ay = sy(0);
+  g.strokeStyle = C.axis; g.lineWidth = 1.5; g.beginPath();
+  if (ay >= 0 && ay <= H) { g.moveTo(0, ay); g.lineTo(W, ay); }
+  if (ax >= 0 && ax <= W) { g.moveTo(ax, 0); g.lineTo(ax, H); }
+  g.stroke();
+  g.font = "12px 'IBM Plex Mono', ui-monospace, monospace"; g.fillStyle = C.axis; g.strokeStyle = C.halo; g.lineWidth = 3; g.lineJoin = "round";
+  const lab = (t, x, y) => { g.strokeText(t, x, y); g.fillText(t, x, y); };
+  const num = (v) => { const s = String(+v.toPrecision(12)); return v < 0 ? "−" + s.slice(1) : s; };
+  g.textAlign = "center"; g.textBaseline = "top";
+  const ly = Math.min(Math.max(ay + 4, 2), H - 16);
+  for (let x = Math.ceil(x0 / step) * step; x <= x1; x += step) if (Math.abs(x) > step / 2) lab(num(x), sx(x), ly);
+  g.textAlign = "right"; g.textBaseline = "middle";
+  const lx = Math.min(Math.max(ax - 6, 30), W - 4);
+  for (let y = Math.ceil(y0 / step) * step; y <= y1; y += step) if (Math.abs(y) > step / 2) lab(num(y), lx, sy(y));
+}
+let drag = null;
+cv.addEventListener("pointerdown", (e) => { drag = { x: e.clientX, y: e.clientY }; cv.setPointerCapture(e.pointerId); });
+cv.addEventListener("pointermove", (e) => {
+  if (!drag) return;
+  view.cx -= (e.clientX - drag.x) / view.s; view.cy += (e.clientY - drag.y) / view.s;
+  drag = { x: e.clientX, y: e.clientY }; view.userMoved = true; dirty = true;
+});
+cv.addEventListener("pointerup", () => (drag = null)); cv.addEventListener("pointercancel", () => (drag = null));
+cv.addEventListener("wheel", (e) => { e.preventDefault(); const r = cv.getBoundingClientRect(); zoomAt(e.clientX - r.left, e.clientY - r.top, Math.exp(-e.deltaY * 0.0015)); }, { passive: false });
+$("#zin").onclick = () => { const { W, H } = size(); zoomAt(W / 2, H / 2, 1.4); };
+$("#zout").onclick = () => { const { W, H } = size(); zoomAt(W / 2, H / 2, 1 / 1.4); };
+$("#zhome").onclick = () => { view.userMoved = false; fit(); };
+new ResizeObserver(() => { if (!view.userMoved) fit(); dirty = true; }).observe($("#paper"));
+
+// ---------- playback (the source video is the clock and the sound) ----------
+let playing = false;
+const PLAY = '<svg viewBox="0 0 14 14"><path d="M3 1.5v11l9.5-5.5z" fill="currentColor"/></svg>';
+const PAUSE = '<svg viewBox="0 0 14 14"><path d="M2.5 1.5h3.2v11H2.5zM8.3 1.5h3.2v11H8.3z" fill="currentColor"/></svg>';
+function setupPlayer(r) {
+  $("#player").hidden = false;
+  const dur = r.frames.length / r.fps;
+  $("#scrub").max = dur.toFixed(2); $("#scrub").value = 0; $("#tdur").textContent = "of " + dur.toFixed(2) + " s";
+  $("#play").innerHTML = PLAY; $("#play").setAttribute("aria-label", "Play");
+  seek(state.src.el, r.start);
+}
+function stopPlayback() {
+  playing = false;
+  if (state.src && state.src.kind === "video") state.src.el.pause();
+  $("#player").hidden = !(state.result && state.result.kind === "video");
+  $("#play").innerHTML = PLAY;
+}
+$("#play").addEventListener("click", async () => {
+  const r = state.result; if (!r || r.kind !== "video") return;
+  const v = state.src.el;
+  if (playing) { v.pause(); playing = false; $("#play").innerHTML = PLAY; $("#play").setAttribute("aria-label", "Play"); return; }
+  const dur = r.frames.length / r.fps;
+  if (v.currentTime < r.start || v.currentTime >= r.start + dur - 0.02) await seek(v, r.start);
+  v.muted = !r.o.audio;
+  try { await v.play(); } catch (e) { v.muted = true; await v.play().catch(() => {}); }
+  playing = true; $("#play").innerHTML = PAUSE; $("#play").setAttribute("aria-label", "Pause");
+});
+$("#scrub").addEventListener("input", (e) => {
+  const r = state.result; if (!r) return;
+  const t = +e.target.value; state.src.el.currentTime = r.start + t;
+  view.frame = Math.min(r.frames.length - 1, Math.floor(t * r.fps)); dirty = true;
+});
+
+function loop() {
+  const r = state.result;
+  if (playing && r && r.kind === "video") {
+    const v = state.src.el, dur = r.frames.length / r.fps;
+    let t = v.currentTime - r.start;
+    if (t >= dur - 1e-3 || v.ended) {
+      if (r.loop) { v.currentTime = r.start; t = 0; } else { v.pause(); playing = false; $("#play").innerHTML = PLAY; t = dur; }
+    }
+    const i = Math.min(r.frames.length - 1, Math.max(0, Math.floor(t * r.fps)));
+    if (i !== view.frame) { view.frame = i; dirty = true; }
+    $("#tval").textContent = Math.max(0, t).toFixed(2);
+    if (document.activeElement !== $("#scrub")) $("#scrub").value = Math.max(0, t);
+  }
+  if (dirty) { draw(); dirty = false; }
+  requestAnimationFrame(loop);
+}
+
+// ---------- start ----------
+readColors();
+(function boot() {
+  const c = makeSample();
+  state.src = { kind: "image", name: "sample", el: c, w: c.width, h: c.height };
+  setInfo([["File", "sample (built in)"], ["Image", "480×320"], ["Tip", "Drop your own file above"]]);
+  setMode("color");
+  setStatus("Showing a built-in sample. Drop your own image or video to start.");
+  renderStill();
+  requestAnimationFrame(loop);
+})();
+</script>
