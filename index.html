@@ -1,3 +1,4 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style>body{margin:0}[hidden]{display:none!important}</style></head><body>
 <title>img2desmos</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -148,6 +149,15 @@ code, kbd { font-family: var(--font-mono); font-size: 13px; background: var(--pa
 .exprs span { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--fg); color: var(--bg);
   padding: 10px 16px; border-radius: 8px; font-size: 14px; box-shadow: var(--shadow); z-index: 20; max-width: calc(100% - 32px); }
+.viewer-modal { position: fixed; inset: 0; z-index: 30; background: var(--bg); display: grid; grid-template-rows: auto minmax(0, 1fr);
+  padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+.vm-bar { display: flex; align-items: center; gap: 10px; padding-block: 8px;
+  padding-left: max(12px, env(safe-area-inset-left, 0px)); padding-right: max(12px, env(safe-area-inset-right, 0px));
+  border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; }
+.vm-bar h2 { font: 600 15px var(--font-head); margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
+.vm-bar .btn { padding: 6px 12px; }
+.viewer-modal iframe { width: 100%; height: 100%; border: 0; display: block; background: #fff; }
+.btn.wide { grid-column: 1 / -1; }
 textarea.fallback { width: 100%; height: 120px; font: 12px var(--font-mono); border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
@@ -247,7 +257,8 @@ textarea.fallback { width: 100%; height: 120px; font: 12px var(--font-mono); bor
         <div style="display:grid;gap:10px;min-width:0">
           <h2 id="h-export">Use it</h2>
           <div class="actions">
-            <button class="btn primary" id="copy" type="button" disabled><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="5" y="5" width="9" height="9" rx="1.5"/><path d="M11 5V3.5A1.5 1.5 0 0 0 9.5 2h-6A1.5 1.5 0 0 0 2 3.5v6A1.5 1.5 0 0 0 3.5 11H5"/></svg>Copy Desmos code</button>
+            <button class="btn primary wide" id="open-viewer" type="button" disabled><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M6.5 6v4.5l4-2.25z" fill="currentColor"/></svg>Open graph viewer</button>
+            <button class="btn" id="copy" type="button" disabled><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="5" y="5" width="9" height="9" rx="1.5"/><path d="M11 5V3.5A1.5 1.5 0 0 0 9.5 2h-6A1.5 1.5 0 0 0 2 3.5v6A1.5 1.5 0 0 0 3.5 11H5"/></svg>Copy Desmos code</button>
             <button class="btn" id="copyloader" type="button"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 5h4l1.5 2H14v6.5H2z" stroke-linejoin="round"/></svg>Copy loader</button>
             <button class="btn" id="dl-desmos" type="button" disabled><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v9M4.5 7.5L8 11l3.5-3.5M2.5 14h11"/></svg>Download for Desmos</button>
             <button class="btn" id="dl-viewer" type="button" disabled><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v9M4.5 7.5L8 11l3.5-3.5M2.5 14h11"/></svg>Download graph viewer</button>
@@ -270,6 +281,14 @@ textarea.fallback { width: 100%; height: 120px; font: 12px var(--font-mono); bor
   </div>
 </div>
 <div class="toast" id="toast" hidden></div>
+<div class="viewer-modal" id="vmodal" role="dialog" aria-modal="true" aria-labelledby="vm-title" hidden>
+  <div class="vm-bar">
+    <h2 id="vm-title">Graph viewer</h2>
+    <button class="btn" id="vm-tab" type="button" hidden>Open in new tab</button>
+    <button class="btn" id="vm-close" type="button">Close <kbd>Esc</kbd></button>
+  </div>
+  <iframe id="vframe" title="Graph viewer"></iframe>
+</div>
 
 <script id="tracer-src">
 /* ===== Tracer: pure functions, also run inside Web Workers ===== */
@@ -900,7 +919,7 @@ function buildOutputs() {
 }
 function refreshExports() {
   const ok = !!state.result;
-  for (const id of ["copy", "dl-desmos", "dl-viewer"]) $("#" + id).disabled = !ok;
+  for (const id of ["open-viewer", "copy", "dl-desmos", "dl-viewer"]) $("#" + id).disabled = !ok;
   $("#fallback").hidden = true;
 }
 function toast(msg) { const t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => (t.hidden = true), 3200); }
@@ -937,6 +956,38 @@ $("#dl-desmos").addEventListener("click", () => {
   saveFile(state.result.name + (raw ? ".desmos.json" : ".desmos.txt"), raw ? o.json : o.desmos);
 });
 $("#dl-viewer").addEventListener("click", () => { if (state.result) saveFile(state.result.name + ".viewer.html", buildOutputs().viewer); });
+
+// ---------- built-in graph viewer (no download needed) ----------
+const inArtifact = !!(window.claude && window.claude.use);
+function openViewer() {
+  if (!state.result) return;
+  stopPlayback();
+  $("#vm-title").textContent = state.result.name + " · graph viewer";
+  $("#vm-tab").hidden = inArtifact;  // new tabs are blocked inside claude.ai pages
+  $("#vframe").srcdoc = buildOutputs().viewer;
+  $("#vmodal").hidden = false;
+  document.body.style.overflow = "hidden";
+  $("#vm-close").focus();
+}
+function closeViewer() {
+  if ($("#vmodal").hidden) return;
+  $("#vframe").srcdoc = "";  // unloads the page, which stops its sound
+  $("#vmodal").hidden = true;
+  document.body.style.overflow = "";
+  $("#open-viewer").focus();
+}
+$("#open-viewer").addEventListener("click", openViewer);
+$("#vm-close").addEventListener("click", closeViewer);
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeViewer(); });
+$("#vframe").addEventListener("load", () => {  // let Esc work while the viewer has focus too
+  try { $("#vframe").contentWindow.addEventListener("keydown", (e) => { if (e.key === "Escape") closeViewer(); }); } catch (err) {}
+});
+$("#vm-tab").addEventListener("click", () => {
+  const url = URL.createObjectURL(new Blob([buildOutputs().viewer], { type: "text/html" }));
+  const w = window.open(url, "_blank");
+  if (w) { closeViewer(); setTimeout(() => URL.revokeObjectURL(url), 60000); }
+  else { URL.revokeObjectURL(url); toast("Your browser blocked the new tab. The viewer is still open here."); }
+});
 
 function renderExprs(shapes, mode) {
   const rows = shapes.slice(0, 4).map((s) => {
@@ -1093,3 +1144,5 @@ readColors();
   requestAnimationFrame(loop);
 })();
 </script>
+
+</body></html>
